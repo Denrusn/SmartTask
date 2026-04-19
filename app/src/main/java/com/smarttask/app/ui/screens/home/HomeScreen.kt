@@ -27,6 +27,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.smarttask.app.receiver.AlarmReceiver
 import com.smarttask.app.ui.theme.SmartTaskTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch

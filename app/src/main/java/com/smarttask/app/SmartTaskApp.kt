@@ -29,10 +29,11 @@ class SmartTaskApp : Application() {
         val forceChannel = NotificationChannel(
             CHANNEL_FORCE,
             "强提醒",
-            NotificationManager.IMPORTANCE_FULL_SCREEN
+            NotificationManager.IMPORTANCE_HIGH
         ).apply {
             description = "强提醒通知，需要全屏展示"
             setShowBadge(false)
+            lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
         }
 
         val notificationManager = getSystemService(NotificationManager::class.java)
