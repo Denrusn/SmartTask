@@ -1,0 +1,69 @@
+name: Android CI/CD
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v2
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build debug APK
+        run: ./gradlew assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: SmartTask-debug
+          path: app/build/outputs/apk/debug/*.apk
+
+  notify:
+    needs: build
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - name: Download APK
+        uses: actions/download-artifact@v4
+        with:
+          name: SmartTask-debug
+          path: ./apk
+
+      - name: List artifacts
+        run: ls -la ./apk
+
+      - name: Get APK info
+        id: apk_info
+        run: |
+          if [ -f ./apk/app-debug.apk ]; then
+            echo "file=./apk/app-debug.apk" >> $GITHUB_OUTPUT
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Show build status
+        run: |
+          echo "Build Status: ${{ needs.build.result }}"
+          if [ "${{ needs.build.result }}" == "success" ]; then
+            echo "APK built successfully!"
+          fi
