@@ -36,35 +36,30 @@ jobs:
         with:
           name: SmartTask-debug
           path: app/build/outputs/apk/debug/*.apk
+          retention-days: 7
 
-  notify:
+  build-summary:
     needs: build
     runs-on: ubuntu-latest
     if: always()
-
     steps:
-      - name: Download APK
-        uses: actions/download-artifact@v4
-        with:
-          name: SmartTask-debug
-          path: ./apk
-
-      - name: List artifacts
-        run: ls -la ./apk
-
-      - name: Get APK info
-        id: apk_info
+      - name: Build Summary
         run: |
-          if [ -f ./apk/app-debug.apk ]; then
-            echo "file=./apk/app-debug.apk" >> $GITHUB_OUTPUT
-            echo "exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Show build status
-        run: |
-          echo "Build Status: ${{ needs.build.result }}"
+          echo "## SmartTask Build Result" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
           if [ "${{ needs.build.result }}" == "success" ]; then
-            echo "APK built successfully!"
+            echo "✅ **Build Successful!**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### APK Download" >> $GITHUB_STEP_SUMMARY
+            echo "The debug APK has been uploaded as an artifact." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "To download the APK:" >> $GITHUB_STEP_SUMMARY
+            echo "1. Go to the **Actions** tab" >> $GITHUB_STEP_SUMMARY
+            echo "2. Select this workflow run" >> $GITHUB_STEP_SUMMARY
+            echo "3. Click on the **Build** job" >> $GITHUB_STEP_SUMMARY
+            echo "4. Download the artifact **SmartTask-debug**" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Build Failed**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Please check the build logs for errors." >> $GITHUB_STEP_SUMMARY
           fi
