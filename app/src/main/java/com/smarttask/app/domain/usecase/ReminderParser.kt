@@ -28,7 +28,8 @@ class ReminderParser {
             "天" to Calendar.SUNDAY
         )
 
-        private val IGNORED_WORDS = setOf("的", "，", "。", "！", "？", "提醒", "我")
+        private val IGNORED_CHARS = setOf('的', '，', '。', '！', '？')
+        private val IGNORED_WORDS = setOf("提醒", "我")
     }
 
     private var text: String = ""
@@ -84,7 +85,7 @@ class ReminderParser {
             }
 
             // 提取剩余文本作为事件
-            eventDescription = text.substring(index).filter { it !in IGNORED_WORDS }
+            eventDescription = text.substring(index).filter { it !in IGNORED_CHARS }
 
             if (timeFields.isEmpty() && deltaFields.isEmpty()) {
                 return ParseResult(
@@ -181,12 +182,12 @@ class ReminderParser {
 
     private fun peekWord(): String {
         val start = index
-        while (start < text.length && text[start] in IGNORED_WORDS) {
+        while (start < text.length && text[start] in IGNORED_CHARS) {
             // skip ignored
         }
         val end = start
         var i = end
-        while (i < text.length && text[i] !in IGNORED_WORDS && text[i] !in " \t\n\r,，、；;:：.()-（）[]{}") {
+        while (i < text.length && text[i] !in IGNORED_CHARS && text[i] !in " \t\n\r,，、；;:：.()-（）[]{}") {
             i++
         }
         return text.substring(start, i)
