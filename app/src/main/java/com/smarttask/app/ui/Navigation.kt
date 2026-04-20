@@ -10,6 +10,7 @@ import com.smarttask.app.ui.screens.create.CreateReminderScreen
 import com.smarttask.app.ui.screens.edit.EditReminderScreen
 import com.smarttask.app.ui.screens.history.HistoryScreen
 import com.smarttask.app.ui.screens.home.HomeScreen
+import com.smarttask.app.ui.screens.permission.PermissionScreen
 import com.smarttask.app.ui.screens.settings.SettingsScreen
 
 sealed class Screen(val route: String) {
@@ -20,6 +21,7 @@ sealed class Screen(val route: String) {
     }
     object History : Screen("history")
     object Settings : Screen("settings")
+    object Permission : Screen("permission")
 }
 
 @Composable
@@ -61,6 +63,11 @@ fun SmartTaskNavHost() {
         composable(Screen.Settings.route) {
             SettingsScreen(
                 onNavigateBack = { navController.popBackStack() }
+            )
+        }
+        composable(Screen.Permission.route) {
+            PermissionScreen(
+                onAllGranted = { navController.popBackStack() }
             )
         }
     }
