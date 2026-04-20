@@ -734,6 +734,12 @@ class ReminderParser {
         if (deltaFields.containsKey("seconds")) {
             calendar.add(Calendar.SECOND, deltaFields["seconds"]!!)
         }
+        if (deltaFields.containsKey("minutes")) {
+            calendar.add(Calendar.MINUTE, deltaFields["minutes"]!!)
+        }
+        if (deltaFields.containsKey("hours")) {
+            calendar.add(Calendar.HOUR_OF_DAY, deltaFields["hours"]!!)
+        }
 
         calendar.set(Calendar.SECOND, 0)
         calendar.set(Calendar.MILLISECOND, 0)
