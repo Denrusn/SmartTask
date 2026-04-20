@@ -46,6 +46,8 @@ class ReminderParser {
         afternoonFlag = false
         eventDescription = ""
 
+        android.util.Log.d("ReminderParser", "parse: input='$input'")
+
         return try {
             text = normalizeText(text)
             index = 0
@@ -224,6 +226,7 @@ class ReminderParser {
             hasNonZero = true
             i++
         }
+        android.util.Log.d("ReminderParser", "consumeDigit: index=$index, i=$i, numStr='$numStr'")
         if (numStr.isNotEmpty()) {
             index = i
             return numStr.toInt()
@@ -613,6 +616,8 @@ class ReminderParser {
             val hasTimeSeparator = consume("点") || consume("点钟") || consume("点整") || consume("时") ||
                 consume(":") || consume("：") || consume(".")
 
+            android.util.Log.d("ReminderParser", "consumeTime: hour=$hour, hasTimeSeparator=$hasTimeSeparator, index=$index, remaining='${text.substring(index)}'")
+
             if (hasTimeSeparator) {
                 var finalHour = hour
 
@@ -630,8 +635,10 @@ class ReminderParser {
                 skipWhitespace()
                 if (text.length > index && text[index].isDigit()) {
                     val minute = consumeDigit()
+                    android.util.Log.d("ReminderParser", "consumeTime: after consumeDigit minute=$minute, index=$index, remaining='${text.substring(index)}'")
                     if (minute != null && minute <= 59) {
                         timeFields["minute"] = minute
+                        android.util.Log.d("ReminderParser", "consumeTime: set minute=$minute")
                         consume("分") || consume("分钟")
                     }
                 } else {
