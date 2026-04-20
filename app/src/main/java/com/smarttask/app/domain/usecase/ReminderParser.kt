@@ -52,27 +52,59 @@ class ReminderParser {
         return try {
             text = normalizeText(text)
             index = 0
+            LogcatManager.d("Parser", "normalizeText后: '$text'")
 
             // 首先设置默认日期为今天
             deltaFields["days"] = 0
 
             while (index < text.length) {
                 val startIdx = index
+                val remaining = text.substring(index)
 
-                if (consumeRepeat()) continue
-                if (consumeYearPeriod()) continue
-                if (consumeMonthPeriod()) continue
-                if (consumeRelativeDay()) continue
-                if (consumeWeekday()) continue
-                if (consumeYear()) continue
-                if (consumeMonth()) continue
-                if (consumeDay()) continue
-                if (consumeHourPeriod()) continue
-                if (consumeMinutePeriod()) continue
-                if (consumeSecondPeriod()) continue
-                if (consumeTime()) continue
+                LogcatManager.d("Parser", "循环开始: index=$index, remaining='$remaining'")
+
+                val consumedRepeat = consumeRepeat()
+                LogcatManager.d("Parser", "consumeRepeat=$consumedRepeat, index=$index")
+                if (consumedRepeat) { LogcatManager.d("Parser", "deltaFields=$deltaFields"); continue }
+
+                val consumedYearPeriod = consumeYearPeriod()
+                if (consumedYearPeriod) { LogcatManager.d("Parser", "deltaFields=$deltaFields"); continue }
+
+                val consumedMonthPeriod = consumeMonthPeriod()
+                if (consumedMonthPeriod) { LogcatManager.d("Parser", "deltaFields=$deltaFields"); continue }
+
+                val consumedRelativeDay = consumeRelativeDay()
+                LogcatManager.d("Parser", "consumeRelativeDay=$consumedRelativeDay, index=$index")
+                if (consumedRelativeDay) { LogcatManager.d("Parser", "deltaFields=$deltaFields"); continue }
+
+                val consumedWeekday = consumeWeekday()
+                if (consumedWeekday) { LogcatManager.d("Parser", "deltaFields=$deltaFields"); continue }
+
+                val consumedYear = consumeYear()
+                if (consumedYear) { LogcatManager.d("Parser", "deltaFields=$deltaFields"); continue }
+
+                val consumedMonth = consumeMonth()
+                if (consumedMonth) { LogcatManager.d("Parser", "deltaFields=$deltaFields"); continue }
+
+                val consumedDay = consumeDay()
+                if (consumedDay) { LogcatManager.d("Parser", "deltaFields=$deltaFields"); continue }
+
+                val consumedHourPeriod = consumeHourPeriod()
+                if (consumedHourPeriod) { LogcatManager.d("Parser", "deltaFields=$deltaFields"); continue }
+
+                val consumedMinutePeriod = consumeMinutePeriod()
+                LogcatManager.d("Parser", "consumeMinutePeriod=$consumedMinutePeriod, index=$index")
+                if (consumedMinutePeriod) { LogcatManager.d("Parser", "deltaFields=$deltaFields"); continue }
+
+                val consumedSecondPeriod = consumeSecondPeriod()
+                if (consumedSecondPeriod) { LogcatManager.d("Parser", "deltaFields=$deltaFields"); continue }
+
+                val consumedTime = consumeTime()
+                LogcatManager.d("Parser", "consumeTime=$consumedTime, index=$index")
+                if (consumedTime) { LogcatManager.d("Parser", "deltaFields=$deltaFields, timeFields=$timeFields"); continue }
 
                 if (index == startIdx) {
+                    LogcatManager.d("Parser", "没有匹配，增加index")
                     index++
                 }
             }
@@ -519,29 +551,47 @@ class ReminderParser {
     private fun consumeMinutePeriod(): Boolean {
         skipWhitespace()
         val remaining = text.substring(index)
+        LogcatManager.d("Parser", "consumeMinutePeriod: remaining='$remaining'")
 
         if (remaining.startsWith("等会") || remaining.startsWith("一会") || remaining.startsWith("一会儿")) {
             index += if (remaining.startsWith("一会儿")) 3 else 2
             deltaFields["minutes"] = 10
+            LogcatManager.d("Parser", "consumeMinutePeriod: 匹配等会/一会, index=$index")
             return true
         }
 
-        val count = consumeDigit() ?: return false
+        val count = consumeDigit()
+        LogcatManager.d("Parser", "consumeMinutePeriod: consumeDigit count=$count, index=$index")
+        if (count == null) {
+            LogcatManager.d("Parser", "consumeMinutePeriod: consumeDigit返回null, 返回false")
+            return false
+        }
         skipWhitespace()
 
         // 处理"X分钟后"或"X分后"格式
-        if (consume("分") || consume("分钟")) {
+        val consumed分 = consume("分")
+        val consumed分钟 = consume("分钟")
+        LogcatManager.d("Parser", "consumeMinutePeriod: consume分=$consumed分, consume分钟=$consumed分钟, index=$index")
+
+        if (consumed分 || consumed分钟) {
             // 处理"钟"字（半小时/半个钟头）
             consume("钟")
             // "后"和"以后"是中文，不需要严格边界检查
-            if (consume("后") || consume("以后")) {
+            val consumed后 = consume("后")
+            val consumed以后 = consume("以后")
+            LogcatManager.d("Parser", "consumeMinutePeriod: consume后=$consumed后, consume以后=$consumed以后, index=$index")
+
+            if (consumed后 || consumed以后) {
                 deltaFields["minutes"] = count
+                LogcatManager.d("Parser", "consumeMinutePeriod: 成功! deltaFields=$deltaFields")
                 return true
             }
             // 没有"后"也接受（如"20分钟"单独使用）
             deltaFields["minutes"] = count
+            LogcatManager.d("Parser", "consumeMinutePeriod: 无后缀，成功! deltaFields=$deltaFields")
             return true
         }
+        LogcatManager.d("Parser", "consumeMinutePeriod: 不匹配分/分钟, 返回false")
         return false
     }
 
