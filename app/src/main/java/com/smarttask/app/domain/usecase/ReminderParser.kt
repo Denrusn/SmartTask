@@ -5,39 +5,16 @@ import java.util.*
 
 /**
  * 自然语言提醒解析器
- * 基于 wx_bot scheduler_parser 设计，支持 WeCron 测试用例
  */
 class ReminderParser {
 
     companion object {
-        // 中文数字映射
         private val CN_NUM = mapOf(
             '零' to 0, '一' to 1, '二' to 2, '三' to 3, '四' to 4,
             '五' to 5, '六' to 6, '七' to 7, '八' to 8, '九' to 9,
             '壹' to 1, '贰' to 2, '叁' to 3, '肆' to 4, '伍' to 5,
             '陆' to 6, '柒' to 7, '捌' to 8, '玖' to 9, '两' to 2
         )
-
-        // 中文单位映射
-        private val CN_UNIT = mapOf(
-            '十' to 10, '拾' to 10, '百' to 100, '佰' to 100,
-            '千' to 1000, '仠' to 1000, '万' to 10000, '亿' to 100000000
-        )
-
-        // 星期映射
-        private val WEEKDAY_NAMES = mapOf(
-            "一" to Calendar.MONDAY,
-            "二" to Calendar.TUESDAY,
-            "三" to Calendar.WEDNESDAY,
-            "四" to Calendar.THURSDAY,
-            "五" to Calendar.FRIDAY,
-            "六" to Calendar.SATURDAY,
-            "日" to Calendar.SUNDAY,
-            "天" to Calendar.SUNDAY
-        )
-
-        // 忽略的字符
-        private val IGNORED_CHARS = setOf('的', '，', '。', '！', '？', '、', '；', ':', '：')
     }
 
     private var text: String = ""
@@ -70,11 +47,12 @@ class ReminderParser {
         eventDescription = ""
 
         return try {
-            // 预处理：转换中文数字并标准化
             text = normalizeText(text)
             index = 0
 
-            // 解析
+            // 首先设置默认日期为今天
+            deltaFields["days"] = 0
+
             while (index < text.length) {
                 val startIdx = index
 
@@ -96,10 +74,9 @@ class ReminderParser {
                 }
             }
 
-            // 提取剩余文本作为事件
-            eventDescription = text.substring(index).filter { it !in IGNORED_CHARS }
+            eventDescription = text.substring(index)
 
-            if (timeFields.isEmpty() && deltaFields.isEmpty()) {
+            if (timeFields.isEmpty() && !hasTimeInfo()) {
                 return ParseResult(
                     triggerType = TriggerType.ONCE,
                     triggerTime = System.currentTimeMillis(),
@@ -131,8 +108,13 @@ class ReminderParser {
         }
     }
 
+    private fun hasTimeInfo(): Boolean {
+        return timeFields.isNotEmpty() || deltaFields.isNotEmpty() || repeatFields.isNotEmpty()
+    }
+
     /**
-     * 规范化文本：转换中文数字为阿拉伯数字
+     * 规范化文本：转换中文数字
+     * 十一 => 11, 三月 => 3月, 二十 => 20, 九点20 => 9:20
      */
     private fun normalizeText(text: String): String {
         val result = StringBuilder()
@@ -143,50 +125,45 @@ class ReminderParser {
 
             when {
                 char in CN_NUM -> {
-                    val num = CN_NUM[char]!!
+                    var value = CN_NUM[char]!!
                     var j = i + 1
                     var hasUnit = false
-                    var value = num
 
-                    // 查看后续是否有单位
+                    // 处理十一、二十等
                     while (j < text.length) {
                         val next = text[j]
-                        if (next in CN_UNIT) {
-                            val unit = CN_UNIT[next]!!
-                            if (unit == 10) {
-                                // 十的特殊处理
-                                if (value == 0) {
-                                    value = 10
-                                } else {
-                                    value = value * 10
-                                }
-                                hasUnit = true
-                                j++
-                            } else if (unit == 100 || unit == 1000 || unit == 10000) {
-                                value = value * unit
-                                hasUnit = true
-                                j++
-                            } else {
-                                break
-                            }
+                        if (next == '十' || next == '拾') {
+                            value = if (value == 0) 10 else value * 10
+                            hasUnit = true
+                            j++
+                        } else if (next == '百' || next == '佰') {
+                            value *= 100
+                            hasUnit = true
+                            j++
+                        } else if (next == '千' || next == '仠') {
+                            value *= 1000
+                            hasUnit = true
+                            j++
                         } else {
                             break
                         }
                     }
 
-                    if (value == 0 && !hasUnit) {
-                        result.append("0")
-                    } else {
-                        result.append(value)
+                    // 如果十后面跟着数字（如二十三）
+                    if (j < text.length && hasUnit && text[j] in CN_NUM) {
+                        value += CN_NUM[text[j]]!!
+                        j++
                     }
+
+                    result.append(value)
                     i = j
                 }
-                char.isDigit() || char.isWhitespace() -> {
-                    result.append(char)
+                char == ':' || char == '：' -> {
+                    result.append(':')
                     i++
                 }
-                char in ":：.-" -> {
-                    result.append(char)
+                char == '.' -> {
+                    result.append('.')
                     i++
                 }
                 else -> {
@@ -201,16 +178,6 @@ class ReminderParser {
 
     private fun peek(length: Int = 1): String {
         return text.substring(index, minOf(index + length, text.length))
-    }
-
-    private fun peekWord(): String {
-        val start = index
-        while (start < text.length && text[start] in IGNORED_CHARS) {}
-        var end = start
-        while (end < text.length && text[end] !in IGNORED_CHARS && text[end] !in " \t\n\r,，、；;:：.()-（）[]{}") {
-            end++
-        }
-        return text.substring(start, end)
     }
 
     private fun skipWhitespace() {
@@ -246,15 +213,25 @@ class ReminderParser {
     private fun consumeDigit(): Int? {
         skipWhitespace()
         var i = index
-        while (i < text.length && text[i] == '0') i++
+        // 跳过前导零但至少保留一个数字
+        var hasNonZero = false
+        while (i < text.length && text[i] == '0' && !hasNonZero) {
+            i++
+        }
         var numStr = ""
         while (i < text.length && text[i].isDigit()) {
             numStr += text[i]
+            hasNonZero = true
             i++
         }
         if (numStr.isNotEmpty()) {
             index = i
             return numStr.toInt()
+        }
+        // 如果全是零（如"00"），返回0
+        if (i > index) {
+            index = i
+            return 0
         }
         return null
     }
@@ -263,68 +240,35 @@ class ReminderParser {
         skipWhitespace()
         val remaining = text.substring(index)
 
-        // 每隔X天/小时
         if (remaining.startsWith("每隔")) {
             index += 2
             skipWhitespace()
             val count = consumeDigit() ?: 1
             skipWhitespace()
             when {
-                consume("天") -> {
-                    repeatFields["days"] = count
-                    setDefaultTimeIfNeeded()
-                    return true
-                }
-                consume("小时") || consume("钟头") -> {
-                    repeatFields["hours"] = count
-                    return true
-                }
-                consume("分钟") || consume("分") -> {
-                    repeatFields["minutes"] = count
-                    return true
-                }
+                consume("天") -> { repeatFields["days"] = count; setDefaultTimeIfNeeded(); return true }
+                consume("小时") || consume("钟头") -> { repeatFields["hours"] = count; return true }
+                consume("分钟") || consume("分") -> { repeatFields["minutes"] = count; return true }
             }
         }
 
         if (remaining.startsWith("每")) {
             index++
             skipWhitespace()
-
-            // 每天/每周/每月/每年
             when {
-                consume("天") -> {
-                    repeatFields["days"] = 1
-                    setDefaultTimeIfNeeded()
-                    return true
-                }
+                consume("天") -> { repeatFields["days"] = 1; setDefaultTimeIfNeeded(); return true }
                 consume("周") -> {
                     repeatFields["weeks"] = 1
-                    if (consumeWord("一", "二", "三", "四", "五", "六", "日", "天")) {
-                        val dayName = peekWord().let { if (it.length == 1) it else it.last().toString() }
-                        if (dayName in WEEKDAY_NAMES) {
-                            deltaFields["weekday"] = WEEKDAY_NAMES[dayName]!!
-                        }
+                    val dayName = peekWord().take(1)
+                    if (dayName in mapOf("一" to 1, "二" to 2, "三" to 3, "四" to 4, "五" to 5, "六" to 6, "日" to 7, "天" to 7)) {
+                        consume(1)
                     }
                     setDefaultTimeIfNeeded()
                     return true
                 }
-                consume("月") -> {
-                    repeatFields["months"] = 1
-                    consumeDay()
-                    setDefaultTimeIfNeeded()
-                    return true
-                }
-                consume("年") -> {
-                    repeatFields["years"] = 1
-                    consumeMonth()
-                    consumeDay()
-                    setDefaultTimeIfNeeded()
-                    return true
-                }
-                consume("小时") -> {
-                    repeatFields["hours"] = 1
-                    return true
-                }
+                consume("月") -> { repeatFields["months"] = 1; consumeDay(); setDefaultTimeIfNeeded(); return true }
+                consume("年") -> { repeatFields["years"] = 1; consumeMonth(); consumeDay(); setDefaultTimeIfNeeded(); return true }
+                consume("小时") -> { repeatFields["hours"] = 1; return true }
             }
         }
         return false
@@ -335,35 +279,15 @@ class ReminderParser {
         val remaining = text.substring(index)
 
         when {
-            remaining.startsWith("今年") -> {
-                index += 2
-                deltaFields["years"] = 0
-                return true
-            }
-            remaining.startsWith("明年") -> {
-                index += 2
-                deltaFields["years"] = 1
-                return true
-            }
-            remaining.startsWith("后年") -> {
-                index += 2
-                deltaFields["years"] = 2
-                return true
-            }
+            remaining.startsWith("今年") -> { index += 2; deltaFields["years"] = 0; return true }
+            remaining.startsWith("明年") -> { index += 2; deltaFields["years"] = 1; return true }
+            remaining.startsWith("后年") -> { index += 2; deltaFields["years"] = 2; return true }
         }
 
-        // X年后
         val i = index
         val num = consumeDigit()
-        if (num != null) {
-            skipWhitespace()
-            if (consume("年后") || consume("年以后")) {
-                deltaFields["years"] = num
-                return true
-            }
-        }
+        if (num != null && consume("年后")) { deltaFields["years"] = num; return true }
         index = i
-
         return false
     }
 
@@ -379,14 +303,10 @@ class ReminderParser {
             }
         }
 
-        // X个月后
+        val i = index
         val num = consumeDigit()
-        if (num != null && (remaining.startsWith("个月后") || remaining.startsWith("个月以后"))) {
-            index += 3
-            deltaFields["months"] = num
-            return true
-        }
-
+        if (num != null && consume("个月后")) { deltaFields["months"] = num; return true }
+        index = i
         return false
     }
 
@@ -395,64 +315,21 @@ class ReminderParser {
         val remaining = text.substring(index)
 
         return when {
-            remaining.startsWith("今天") -> {
-                index += 2
-                deltaFields["days"] = 0
-                setDefaultTimeIfNeeded()
-                true
-            }
-            remaining.startsWith("明天") || remaining.startsWith("明儿") -> {
-                index += 2
-                deltaFields["days"] = 1
-                setDefaultTimeIfNeeded()
-                true
-            }
-            remaining.startsWith("后天") -> {
-                index += 2
-                deltaFields["days"] = 2
-                setDefaultTimeIfNeeded()
-                true
-            }
-            remaining.startsWith("大后天") -> {
-                index += 3
-                deltaFields["days"] = 3
-                setDefaultTimeIfNeeded()
-                true
-            }
-            remaining.startsWith("今晚") -> {
-                index += 2
-                afternoonFlag = true
-                if (!timeFields.containsKey("hour")) {
-                    timeFields["hour"] = 20
-                    timeFields["minute"] = 0
-                }
-                true
-            }
-            remaining.startsWith("明晚") -> {
-                index += 2
-                afternoonFlag = true
-                deltaFields["days"] = 1
-                if (!timeFields.containsKey("hour")) {
-                    timeFields["hour"] = 20
-                    timeFields["minute"] = 0
-                }
-                true
-            }
+            remaining.startsWith("今天") -> { index += 2; deltaFields["days"] = 0; setDefaultTimeIfNeeded(); true }
+            remaining.startsWith("明天") || remaining.startsWith("明儿") -> { index += 2; deltaFields["days"] = 1; setDefaultTimeIfNeeded(); true }
+            remaining.startsWith("后天") -> { index += 2; deltaFields["days"] = 2; setDefaultTimeIfNeeded(); true }
+            remaining.startsWith("大后天") -> { index += 3; deltaFields["days"] = 3; setDefaultTimeIfNeeded(); true }
+            remaining.startsWith("今晚") -> { index += 2; afternoonFlag = true; setDefaultTimeIfNeeded20(); true }
+            remaining.startsWith("明晚") -> { index += 2; afternoonFlag = true; deltaFields["days"] = 1; setDefaultTimeIfNeeded20(); true }
             else -> {
+                val i = index
                 val num = consumeDigit()
                 if (num != null) {
                     skipWhitespace()
-                    if (consume("天后")) {
-                        deltaFields["days"] = num
-                        setDefaultTimeIfNeeded()
-                        return true
-                    }
-                    if (consume("天") && (consumeWord("后") || consumeWord("以后"))) {
-                        deltaFields["days"] = num
-                        setDefaultTimeIfNeeded()
-                        return true
-                    }
+                    if (consume("天后")) { deltaFields["days"] = num; setDefaultTimeIfNeeded(); return true }
+                    if (consume("天") && consumeWord("后", "以后")) { deltaFields["days"] = num; setDefaultTimeIfNeeded(); return true }
                 }
+                index = i
                 false
             }
         }
@@ -462,7 +339,7 @@ class ReminderParser {
         skipWhitespace()
         val remaining = text.substring(index)
 
-        // 下周X
+        // 下周X - 只有明确带"下"才设置weekDelta
         val nextWeekDays = listOf(
             "下周一" to Calendar.MONDAY, "下周二" to Calendar.TUESDAY,
             "下周三" to Calendar.WEDNESDAY, "下周四" to Calendar.THURSDAY,
@@ -479,66 +356,42 @@ class ReminderParser {
             }
         }
 
-        // 周X / 星期X / 礼拜X
+        // 本周X - 不设置weekDelta
         val thisWeekDays = listOf(
             "周一" to Calendar.MONDAY, "周二" to Calendar.TUESDAY,
             "周三" to Calendar.WEDNESDAY, "周四" to Calendar.THURSDAY,
             "周五" to Calendar.FRIDAY, "周六" to Calendar.SATURDAY,
-            "周日" to Calendar.SUNDAY, "周天" to Calendar.SUNDAY,
-            "星期" to -1, "礼拜" to -1
+            "周日" to Calendar.SUNDAY, "周天" to Calendar.SUNDAY
         )
-
-        for ((prefix, _) in thisWeekDays) {
-            if (remaining.startsWith(prefix)) {
-                index += prefix.length
-                // 检查是否是 "星期X" 或 "礼拜X" 格式
-                if ((prefix == "星期" || prefix == "礼拜") && remaining.length > prefix.length) {
-                    val nextChar = remaining[prefix.length]
-                    for ((name, day) in WEEKDAY_NAMES) {
-                        if (nextChar == name[0]) {
-                            deltaFields["weekday"] = day
-                            index++
-                            setDefaultTimeIfNeeded()
-                            return true
-                        }
-                    }
-                } else if (prefix == "周" || prefix == "礼拜") {
-                    // 周X 格式
-                    for ((name, day) in WEEKDAY_NAMES) {
-                        if (remaining.startsWith("周$name")) {
-                            deltaFields["weekday"] = day
-                            index++
-                            setDefaultTimeIfNeeded()
-                            return true
-                        }
-                    }
-                }
-                // 回到index，因为prefix可能是"星期"但没有后续
-                index -= prefix.length
+        for ((pattern, day) in thisWeekDays) {
+            if (remaining.startsWith(pattern)) {
+                index += pattern.length
+                deltaFields["weekday"] = day
+                deltaFields["weekDelta"] = 0
+                setDefaultTimeIfNeeded()
+                return true
             }
         }
 
-        // 单独处理 "星期X" 和 "礼拜X"
-        if (remaining.startsWith("星期一") || remaining.startsWith("礼拜一")) {
-            index += 3; deltaFields["weekday"] = Calendar.MONDAY; setDefaultTimeIfNeeded(); return true
-        }
-        if (remaining.startsWith("星期二") || remaining.startsWith("礼拜二")) {
-            index += 3; deltaFields["weekday"] = Calendar.TUESDAY; setDefaultTimeIfNeeded(); return true
-        }
-        if (remaining.startsWith("星期三") || remaining.startsWith("礼拜三")) {
-            index += 3; deltaFields["weekday"] = Calendar.WEDNESDAY; setDefaultTimeIfNeeded(); return true
-        }
-        if (remaining.startsWith("星期四") || remaining.startsWith("礼拜四")) {
-            index += 3; deltaFields["weekday"] = Calendar.THURSDAY; setDefaultTimeIfNeeded(); return true
-        }
-        if (remaining.startsWith("星期五") || remaining.startsWith("礼拜五")) {
-            index += 3; deltaFields["weekday"] = Calendar.FRIDAY; setDefaultTimeIfNeeded(); return true
-        }
-        if (remaining.startsWith("星期六") || remaining.startsWith("礼拜六")) {
-            index += 3; deltaFields["weekday"] = Calendar.SATURDAY; setDefaultTimeIfNeeded(); return true
-        }
-        if (remaining.startsWith("星期日") || remaining.startsWith("星期天") || remaining.startsWith("礼拜日") || remaining.startsWith("礼拜天")) {
-            index += 3; deltaFields["weekday"] = Calendar.SUNDAY; setDefaultTimeIfNeeded(); return true
+        // 星期X / 礼拜X
+        val fullWeekDays = listOf(
+            "星期一" to Calendar.MONDAY, "星期二" to Calendar.TUESDAY,
+            "星期三" to Calendar.WEDNESDAY, "星期四" to Calendar.THURSDAY,
+            "星期五" to Calendar.FRIDAY, "星期六" to Calendar.SATURDAY,
+            "星期日" to Calendar.SUNDAY, "星期天" to Calendar.SUNDAY,
+            "礼拜一" to Calendar.MONDAY, "礼拜二" to Calendar.TUESDAY,
+            "礼拜三" to Calendar.WEDNESDAY, "礼拜四" to Calendar.THURSDAY,
+            "礼拜五" to Calendar.FRIDAY, "礼拜六" to Calendar.SATURDAY,
+            "礼拜日" to Calendar.SUNDAY, "礼拜天" to Calendar.SUNDAY
+        )
+        for ((pattern, day) in fullWeekDays) {
+            if (remaining.startsWith(pattern)) {
+                index += pattern.length
+                deltaFields["weekday"] = day
+                deltaFields["weekDelta"] = 0
+                setDefaultTimeIfNeeded()
+                return true
+            }
         }
 
         return false
@@ -548,21 +401,17 @@ class ReminderParser {
         skipWhitespace()
         val num = consumeDigit() ?: return false
         if (!consume("年") && !consume("-") && !consume("/") && !consume(".")) return false
-
-        skipWhitespace()
-        // 如果解析了月份
-        if (consumeMonth()) {
-            skipWhitespace()
-            consumeDay()
-        }
-
         timeFields["year"] = num
+        skipWhitespace()
+        consumeMonth()
+        skipWhitespace()
+        consumeDay()
         return true
     }
 
     private fun consumeMonth(): Boolean {
         skipWhitespace()
-        // 先尝试中文月份
+        // 中文月份
         val monthNames = mapOf(
             "一月" to 1, "二月" to 2, "三月" to 3, "四月" to 4,
             "五月" to 5, "六月" to 6, "七月" to 7, "八月" to 8,
@@ -575,10 +424,8 @@ class ReminderParser {
             }
         }
 
-        // 数字月份
         val num = consumeDigit() ?: return false
         if (!consume("月") && !consume("-") && !consume("/") && !consume(".")) return false
-
         if (num in 1..12) {
             timeFields["month"] = num
             return true
@@ -588,8 +435,7 @@ class ReminderParser {
 
     private fun consumeDay(): Boolean {
         skipWhitespace()
-
-        // 先尝试中文日期
+        // 中文日期
         val dayNames = mapOf(
             "一号" to 1, "二号" to 2, "三号" to 3, "四号" to 4, "五号" to 5,
             "六号" to 6, "七号" to 7, "八号" to 8, "九号" to 9, "十号" to 10,
@@ -607,21 +453,22 @@ class ReminderParser {
             }
         }
 
-        // 数字日期
         val num = consumeDigit() ?: return false
         if (num !in 1..31) return false
-
         skipWhitespace()
         consume("号") || consume("日")
-        consume("(") // 处理括号中的星期
+        consume("(")
         if (consumeWord("周", "星期", "礼拜")) {
-            val dayName = peekWord().let { if (it.length == 1) it else it.last().toString() }
-            if (dayName in WEEKDAY_NAMES) {
-                deltaFields["weekday"] = WEEKDAY_NAMES[dayName]!!
+            val dayName = peek().take(1)
+            if (dayName in mapOf("一" to 1, "二" to 2, "三" to 3, "四" to 4, "五" to 5, "六" to 6, "日" to 7, "天" to 7)) {
+                deltaFields["weekday"] = when(dayName) {
+                    "一" -> Calendar.MONDAY; "二" -> Calendar.TUESDAY; "三" -> Calendar.WEDNESDAY
+                    "四" -> Calendar.THURSDAY; "五" -> Calendar.FRIDAY; "六" -> Calendar.SATURDAY
+                    else -> Calendar.SUNDAY
+                }
             }
         }
-        consume(")") || consume("）")
-
+        consume(")")
         timeFields["day"] = num
         return true
     }
@@ -630,46 +477,38 @@ class ReminderParser {
         skipWhitespace()
         val remaining = text.substring(index)
 
-        // 半小时后
         if (remaining.startsWith("半小时后") || remaining.startsWith("半个钟头后")) {
             index += if (remaining.startsWith("半小时后")) 4 else 5
             deltaFields["minutes"] = 30
             return true
         }
 
-        // X个半小时后
-        if (remaining.length >= 4 && remaining[0].isDigit()) {
-            val i = index
-            val count = consumeDigit()
-            if (count != null) {
-                skipWhitespace()
-                if (consume("个") && consume("半") && (consume("小时") || consume("钟头"))) {
-                    if (consumeWord("后") || consumeWord("以后")) {
-                        deltaFields["hours"] = count
-                        deltaFields["minutes"] = 30
-                        return true
-                    }
+        val i = index
+        val count = consumeDigit()
+        if (count != null) {
+            skipWhitespace()
+            if (consume("个") && consume("半") && (consume("小时") || consume("钟头"))) {
+                if (consumeWord("后") || consumeWord("以后")) {
+                    deltaFields["hours"] = count
+                    deltaFields["minutes"] = 30
+                    return true
                 }
-                index = i
             }
+            index = i
         }
 
-        // X小时后
-        if (remaining.length >= 3 && remaining[0].isDigit()) {
-            val i = index
-            val count = consumeDigit()
-            if (count != null) {
-                skipWhitespace()
-                if (consume("小时") || consume("钟头")) {
-                    if (consumeWord("后") || consumeWord("以后")) {
-                        deltaFields["hours"] = count
-                        return true
-                    }
+        val j = index
+        val count2 = consumeDigit()
+        if (count2 != null) {
+            skipWhitespace()
+            if (consume("小时") || consume("钟头")) {
+                if (consumeWord("后") || consumeWord("以后")) {
+                    deltaFields["hours"] = count2
+                    return true
                 }
-                index = i
             }
         }
-
+        index = j
         return false
     }
 
@@ -677,48 +516,37 @@ class ReminderParser {
         skipWhitespace()
         val remaining = text.substring(index)
 
-        // 等会/一会儿
         if (remaining.startsWith("等会") || remaining.startsWith("一会") || remaining.startsWith("一会儿")) {
             index += if (remaining.startsWith("一会儿")) 3 else 2
             deltaFields["minutes"] = 10
             return true
         }
 
-        // X分钟后
-        val count = consumeDigit()
-        if (count != null) {
-            skipWhitespace()
-            if (consume("分钟") || consume("分")) {
-                if (consumeWord("后") || consumeWord("以后")) {
-                    deltaFields["minutes"] = count
-                    return true
-                }
+        val count = consumeDigit() ?: return null ?: return false
+        skipWhitespace()
+        if (consume("分钟") || consume("分")) {
+            if (consumeWord("后") || consumeWord("以后")) {
                 deltaFields["minutes"] = count
                 return true
             }
+            deltaFields["minutes"] = count
+            return true
         }
-
         return false
     }
 
     private fun consumeSecondPeriod(): Boolean {
         skipWhitespace()
-        val remaining = text.substring(index)
-
-        // X秒后
-        val count = consumeDigit()
-        if (count != null) {
-            skipWhitespace()
-            if (consume("秒") || consume("秒钟")) {
-                if (consumeWord("后") || consumeWord("以后")) {
-                    deltaFields["seconds"] = count
-                    return true
-                }
+        val count = consumeDigit() ?: return false
+        skipWhitespace()
+        if (consume("秒") || consume("秒钟")) {
+            if (consumeWord("后") || consumeWord("以后")) {
                 deltaFields["seconds"] = count
                 return true
             }
+            deltaFields["seconds"] = count
+            return true
         }
-
         return false
     }
 
@@ -730,7 +558,9 @@ class ReminderParser {
         when {
             consume("凌晨") || consume("深夜") || consume("半夜") -> {
                 afternoonFlag = false
-                deltaFields["days"] = (deltaFields["days"] ?: 0) + 1
+                if (deltaFields["days"] == 0 || !deltaFields.containsKey("days")) {
+                    deltaFields["days"] = (deltaFields["days"] ?: 0) + 1
+                }
                 timeFields["hour"] = 0
                 timeFields["minute"] = 0
                 consumed = true
@@ -773,27 +603,30 @@ class ReminderParser {
             }
         }
 
-        // 解析具体时间 8点03 / 8:03 / 8点 / 8:30
+        // 解析具体时间 8:03 / 8点03 / 8点
         if (text.length > index && text[index].isDigit()) {
+            val hourStart = index
             val hour = consumeDigit() ?: return consumed
 
             skipWhitespace()
-            if (consume("点") || consume("点钟") || consume("点整") || consume("时") ||
-                consume(":") || consume("：") || consume(".")) {
+            // 检查是否是时间格式
+            val hasTimeSeparator = consume("点") || consume("点钟") || consume("点整") || consume("时") ||
+                consume(":") || consume("：") || consume(".")
 
+            if (hasTimeSeparator) {
                 var finalHour = hour
 
                 // 12小时制转24小时制
                 if (afternoonFlag && hour < 12) {
                     finalHour += 12
                 } else if (!afternoonFlag && hour < 12 && now.get(Calendar.HOUR_OF_DAY) >= 12 &&
-                    !timeFields.containsKey("hour") && deltaFields.isEmpty() && !deltaFields.containsKey("days")) {
+                    !timeFields.containsKey("hour") && (deltaFields["days"] == 0 || !deltaFields.containsKey("days"))) {
                     finalHour += 12
                 }
 
                 timeFields["hour"] = finalHour
 
-                // 解析分钟 - 可能直接连着(如"03")
+                // 解析分钟 - 直接读取连续的数字
                 skipWhitespace()
                 if (text.length > index && text[index].isDigit()) {
                     val minute = consumeDigit()
@@ -807,13 +640,14 @@ class ReminderParser {
 
                 return true
             } else if (hour <= 23) {
+                // 只有小时没有分钟
                 timeFields["hour"] = hour
                 timeFields["minute"] = timeFields["minute"] ?: 0
                 return true
             }
         }
 
-        // 解析分钟单独出现(半)
+        // 半
         if (consumeWord("半")) {
             timeFields["minute"] = 30
             return true
@@ -829,24 +663,26 @@ class ReminderParser {
         }
     }
 
+    private fun setDefaultTimeIfNeeded20() {
+        if (!timeFields.containsKey("hour")) {
+            timeFields["hour"] = 20
+            timeFields["minute"] = 0
+        }
+    }
+
     private fun calculateResult(): Triple<TriggerType, String, Long> {
         val calendar = now.clone() as Calendar
 
-        // 应用年份
         if (deltaFields.containsKey("years")) {
             calendar.add(Calendar.YEAR, deltaFields["years"]!!)
         }
-
-        // 应用月份
         if (deltaFields.containsKey("months")) {
             calendar.add(Calendar.MONTH, deltaFields["months"]!!)
         }
 
-        // 应用天数
         val days = deltaFields["days"] ?: 0
         calendar.add(Calendar.DAY_OF_YEAR, days)
 
-        // 处理星期几
         if (deltaFields.containsKey("weekday")) {
             val targetWeekday = deltaFields["weekday"]!!
             val weekDelta = deltaFields["weekDelta"] ?: 0
@@ -862,7 +698,6 @@ class ReminderParser {
             calendar.add(Calendar.DAY_OF_YEAR, daysUntilWeekday)
         }
 
-        // 应用具体时间
         if (timeFields.containsKey("year")) {
             calendar.set(Calendar.YEAR, timeFields["year"]!!)
         }
@@ -879,7 +714,6 @@ class ReminderParser {
             calendar.set(Calendar.MINUTE, timeFields["minute"]!!)
         }
 
-        // 应用秒
         if (deltaFields.containsKey("seconds")) {
             calendar.add(Calendar.SECOND, deltaFields["seconds"]!!)
         }
