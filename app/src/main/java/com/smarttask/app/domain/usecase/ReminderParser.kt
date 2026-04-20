@@ -259,9 +259,9 @@ class ReminderParser {
                 consume("天") -> { repeatFields["days"] = 1; setDefaultTimeIfNeeded(); return true }
                 consume("周") -> {
                     repeatFields["weeks"] = 1
-                    val dayName = peekWord().take(1)
-                    if (dayName in mapOf("一" to 1, "二" to 2, "三" to 3, "四" to 4, "五" to 5, "六" to 6, "日" to 7, "天" to 7)) {
-                        consume(1)
+                    val dayName = peek(1)
+                    if (dayName in listOf("一", "二", "三", "四", "五", "六", "日", "天")) {
+                        index++
                     }
                     setDefaultTimeIfNeeded()
                     return true
@@ -522,7 +522,7 @@ class ReminderParser {
             return true
         }
 
-        val count = consumeDigit() ?: return null ?: return false
+        val count = consumeDigit() ?: return false
         skipWhitespace()
         if (consume("分钟") || consume("分")) {
             if (consumeWord("后") || consumeWord("以后")) {
