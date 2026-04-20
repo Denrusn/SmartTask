@@ -636,9 +636,11 @@ class ReminderParser {
                 if (text.length > index && text[index].isDigit()) {
                     val minute = consumeDigit()
                     android.util.Log.d("ReminderParser", "consumeTime: after consumeDigit minute=$minute, index=$index, remaining='${text.substring(index)}'")
-                    if (minute != null && minute <= 59) {
-                        timeFields["minute"] = minute
-                        android.util.Log.d("ReminderParser", "consumeTime: set minute=$minute")
+                    if (minute != null) {
+                        // 确保分钟在有效范围内
+                        val validMinute = if (minute in 0..59) minute else 0
+                        timeFields["minute"] = validMinute
+                        android.util.Log.d("ReminderParser", "consumeTime: set minute=$validMinute (original=$minute)")
                         consume("分") || consume("分钟")
                     }
                 } else {
@@ -679,6 +681,8 @@ class ReminderParser {
 
     private fun calculateResult(): Triple<TriggerType, String, Long> {
         val calendar = now.clone() as Calendar
+
+        android.util.Log.d("ReminderParser", "calculateResult: timeFields=$timeFields, deltaFields=$deltaFields")
 
         if (deltaFields.containsKey("years")) {
             calendar.add(Calendar.YEAR, deltaFields["years"]!!)
@@ -727,6 +731,8 @@ class ReminderParser {
 
         calendar.set(Calendar.SECOND, 0)
         calendar.set(Calendar.MILLISECOND, 0)
+
+        android.util.Log.d("ReminderParser", "calculateResult: final hour=${calendar.get(Calendar.HOUR_OF_DAY)}, minute=${calendar.get(Calendar.MINUTE)}, timeInMillis=${calendar.timeInMillis}")
 
         return when {
             repeatFields["years"] != null -> {
