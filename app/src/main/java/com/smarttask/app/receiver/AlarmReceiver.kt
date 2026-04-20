@@ -11,6 +11,7 @@ import com.smarttask.app.R
 import com.smarttask.app.SmartTaskApp
 import com.smarttask.app.domain.model.ActionType
 import com.smarttask.app.ui.screens.home.ForceAlarmActivity
+import com.smarttask.app.util.LogcatManager
 
 class AlarmReceiver : BroadcastReceiver() {
 
@@ -21,14 +22,26 @@ class AlarmReceiver : BroadcastReceiver() {
         val actionType = ActionType.entries[actionTypeOrdinal]
         val reminderId = intent.getLongExtra("reminderId", 0)
 
+        LogcatManager.i("Alarm", "收到闹钟触发: title=$title, reminderId=$reminderId, actionType=$actionType")
+
         when (actionType) {
-            ActionType.NOTIFICATION -> showNotification(context, reminderId, title, content)
-            ActionType.FORCE_ALARM -> showForceAlarm(context, title, content)
-            else -> showNotification(context, reminderId, title, content)
+            ActionType.NOTIFICATION -> {
+                LogcatManager.i("Alarm", "显示普通通知")
+                showNotification(context, reminderId, title, content)
+            }
+            ActionType.FORCE_ALARM -> {
+                LogcatManager.i("Alarm", "显示强提醒")
+                showForceAlarm(context, title, content)
+            }
+            else -> {
+                LogcatManager.i("Alarm", "未知类型，显示普通通知")
+                showNotification(context, reminderId, title, content)
+            }
         }
     }
 
     private fun showNotification(context: Context, id: Long, title: String, content: String) {
+        LogcatManager.i("Alarm", "构建通知: id=$id, title=$title")
         val notification = NotificationCompat.Builder(context, SmartTaskApp.CHANNEL_NORMAL)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle(title)
@@ -39,12 +52,16 @@ class AlarmReceiver : BroadcastReceiver() {
 
         try {
             NotificationManagerCompat.from(context).notify(id.toInt(), notification)
+            LogcatManager.i("Alarm", "通知显示成功")
         } catch (e: SecurityException) {
-            // 通知权限被拒绝
+            LogcatManager.e("Alarm", "通知权限被拒绝: ${e.message}", e)
+        } catch (e: Exception) {
+            LogcatManager.e("Alarm", "显示通知失败: ${e.message}", e)
         }
     }
 
     private fun showForceAlarm(context: Context, title: String, content: String) {
+        LogcatManager.i("Alarm", "启动 ForceAlarmActivity")
         val forceAlarmIntent = Intent(context, ForceAlarmActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or
                     Intent.FLAG_ACTIVITY_CLEAR_TOP or
@@ -57,6 +74,11 @@ class AlarmReceiver : BroadcastReceiver() {
             forceAlarmIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
         }
 
-        context.startActivity(forceAlarmIntent)
+        try {
+            context.startActivity(forceAlarmIntent)
+            LogcatManager.i("Alarm", "ForceAlarmActivity 启动成功")
+        } catch (e: Exception) {
+            LogcatManager.e("Alarm", "启动 ForceAlarmActivity 失败: ${e.message}", e)
+        }
     }
 }

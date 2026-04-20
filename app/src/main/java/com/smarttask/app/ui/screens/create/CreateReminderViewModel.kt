@@ -12,6 +12,7 @@ import com.smarttask.app.domain.model.Reminder
 import com.smarttask.app.domain.model.TriggerType
 import com.smarttask.app.domain.usecase.ReminderParser
 import com.smarttask.app.service.ReminderService
+import com.smarttask.app.util.LogcatManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -42,13 +43,20 @@ class CreateReminderViewModel(application: Application) : AndroidViewModel(appli
     private val _uiState = MutableStateFlow(CreateReminderUiState())
     val uiState: StateFlow<CreateReminderUiState> = _uiState.asStateFlow()
 
+    init {
+        LogcatManager.i("ViewModel", "CreateReminderViewModel 初始化")
+    }
+
     fun updateInputText(text: String) {
         _uiState.value = _uiState.value.copy(inputText = text)
     }
 
     fun parseInput() {
         val input = _uiState.value.inputText.trim()
+        LogcatManager.i("ViewModel", "parseInput: input='$input'")
+
         if (input.isEmpty()) {
+            LogcatManager.w("ViewModel", "输入为空")
             _uiState.value = _uiState.value.copy(error = "请输入提醒内容")
             return
         }
@@ -56,8 +64,10 @@ class CreateReminderViewModel(application: Application) : AndroidViewModel(appli
         _uiState.value = _uiState.value.copy(isLoading = true, error = null)
 
         val result = parser.parse(input)
+        LogcatManager.i("ViewModel", "解析结果: event=${result.event}, triggerType=${result.triggerType}, triggerTime=${result.triggerTime}, error=${result.error}")
 
         if (result.error != null) {
+            LogcatManager.w("ViewModel", "解析失败: ${result.error}")
             _uiState.value = _uiState.value.copy(
                 isLoading = false,
                 error = result.error
@@ -76,6 +86,7 @@ class CreateReminderViewModel(application: Application) : AndroidViewModel(appli
         }
 
         val timeStr = formatTriggerTime(result)
+        LogcatManager.i("ViewModel", "格式化时间: $timeStr")
 
         _uiState.value = _uiState.value.copy(
             isLoading = false,
@@ -87,55 +98,74 @@ class CreateReminderViewModel(application: Application) : AndroidViewModel(appli
                 rawInput = result.rawInput
             )
         )
+        LogcatManager.i("ViewModel", "解析成功，parsedResult 已设置")
     }
 
     fun saveReminder() {
-        val parsed = _uiState.value.parsedResult ?: return
+        val parsed = _uiState.value.parsedResult
+        LogcatManager.i("ViewModel", "saveReminder: parsed=$parsed")
+
+        if (parsed == null) {
+            LogcatManager.w("ViewModel", "parsedResult 为空，无法保存")
+            return
+        }
 
         viewModelScope.launch {
             try {
+                LogcatManager.i("ViewModel", "开始保存提醒...")
+
                 // 检查时间是否已过
                 val triggerTimeMs = parseTriggerTime(parsed)
                 val now = System.currentTimeMillis()
+                LogcatManager.i("ViewModel", "triggerTimeMs=$triggerTimeMs, now=$now, diff=${triggerTimeMs - now}ms")
 
                 if (parsed.triggerType == TriggerType.ONCE && triggerTimeMs <= now) {
+                    LogcatManager.w("ViewModel", "提醒时间已过")
                     _uiState.value = _uiState.value.copy(error = "提醒时间已过，请重新设置一个将来的时间")
                     return@launch
                 }
+
+                // 构建 triggerValue
+                val triggerValue = when (parsed.triggerType) {
+                    TriggerType.ONCE -> triggerTimeMs.toString()
+                    TriggerType.DAILY, TriggerType.WEEKLY, TriggerType.MONTHLY, TriggerType.YEARLY ->
+                        parsed.triggerTime.split(" ").lastOrNull() ?: ""
+                    else -> parsed.triggerTime
+                }
+                LogcatManager.i("ViewModel", "triggerValue = $triggerValue")
 
                 val reminder = Reminder(
                     title = parsed.event,
                     content = "提醒：${parsed.event}",
                     triggerType = parsed.triggerType,
-                    triggerValue = when (parsed.triggerType) {
-                        TriggerType.ONCE -> triggerTimeMs.toString()
-                        TriggerType.DAILY, TriggerType.WEEKLY, TriggerType.MONTHLY, TriggerType.YEARLY ->
-                            parsed.triggerTime.split(" ").lastOrNull() ?: ""
-                        else -> parsed.triggerTime
-                    },
+                    triggerValue = triggerValue,
                     actionType = ActionType.NOTIFICATION
                 )
+                LogcatManager.i("ViewModel", "创建 Reminder 对象: $reminder")
 
                 val id = repository.insertReminder(reminder)
+                LogcatManager.i("ViewModel", "数据库插入成功，id=$id")
 
                 // 启动服务来调度提醒
                 val intent = android.content.Intent(getApplication(), ReminderService::class.java).apply {
                     action = "com.smarttask.SCHEDULE"
                     putExtra("reminderId", id)
                 }
+                LogcatManager.i("ViewModel", "启动 ReminderService, intent.action=${intent.action}, reminderId=$id")
                 getApplication<Application>().startService(intent)
+                LogcatManager.i("ViewModel", "startService 调用完成")
 
                 _uiState.value = _uiState.value.copy(parsedResult = null, inputText = "", navigateBack = true)
+                LogcatManager.i("ViewModel", "保存成功，navigateBack=true")
             } catch (e: Exception) {
+                LogcatManager.e("ViewModel", "保存失败: ${e.message}", e)
                 _uiState.value = _uiState.value.copy(error = "保存失败: ${e.message}")
             }
         }
     }
 
     private fun parseTriggerTime(parsed: ParsedReminderUiState): Long {
-        // 从 formatted time string "4月20日(周一) 08:03" 解析出时间戳
-        // 或者从 result.event 中获取原始时间戳
-        // 这里使用简单的方式：从 triggerTime 重新解析
+        LogcatManager.i("ViewModel", "parseTriggerTime: triggerTime='${parsed.triggerTime}'")
         return try {
             val timeStr = parsed.triggerTime
             // 格式: "4月20日(周一) 08:03"
@@ -150,11 +180,14 @@ class CreateReminderViewModel(application: Application) : AndroidViewModel(appli
                 calendar.set(java.util.Calendar.MINUTE, minute.toInt())
                 calendar.set(java.util.Calendar.SECOND, 0)
                 calendar.set(java.util.Calendar.MILLISECOND, 0)
+                LogcatManager.i("ViewModel", "parseTriggerTime 结果: ${calendar.timeInMillis}")
                 calendar.timeInMillis
             } else {
+                LogcatManager.w("ViewModel", "parseTriggerTime: 正则不匹配，返回当前时间")
                 System.currentTimeMillis()
             }
         } catch (e: Exception) {
+            LogcatManager.e("ViewModel", "parseTriggerTime 异常: ${e.message}", e)
             System.currentTimeMillis()
         }
     }
@@ -164,10 +197,12 @@ class CreateReminderViewModel(application: Application) : AndroidViewModel(appli
     }
 
     fun resetInput() {
+        LogcatManager.i("ViewModel", "resetInput")
         _uiState.value = CreateReminderUiState()
     }
 
     fun clearParsedResult() {
+        LogcatManager.i("ViewModel", "clearParsedResult")
         _uiState.value = _uiState.value.copy(parsedResult = null)
     }
 
