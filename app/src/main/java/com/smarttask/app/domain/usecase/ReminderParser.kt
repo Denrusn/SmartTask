@@ -553,45 +553,49 @@ class ReminderParser {
         val remaining = text.substring(index)
         LogcatManager.d("Parser", "consumeMinutePeriod: remaining='$remaining'")
 
+        // 专门处理"X分钟后"格式（X是数字，后面直接跟"分"）
+        if (remaining.length >= 3 && remaining[0].isDigit()) {
+            val i = index
+            val count = consumeDigit()
+            if (count == null) {
+                LogcatManager.d("Parser", "consumeMinutePeriod: consumeDigit返回null")
+                return false
+            }
+            skipWhitespace()
+            LogcatManager.d("Parser", "consumeMinutePeriod: count=$count, remaining='${text.substring(index)}'")
+
+            // 检查是否有"分"或"分钟"
+            val has分 = consume("分")
+            val has分钟 = consume("分钟")
+            LogcatManager.d("Parser", "consumeMinutePeriod: has分=$has分, has分钟=$has分钟, remaining='${text.substring(index)}'")
+
+            if (has分 || has分钟) {
+                consume("钟") // 处理"分钟钟"等
+                skipWhitespace()
+
+                // 处理"后"或"以后"
+                val has后 = consume("后")
+                val has以后 = consume("以后")
+                LogcatManager.d("Parser", "consumeMinutePeriod: has后=$has后, has以后=$has以后")
+
+                deltaFields["minutes"] = count
+                LogcatManager.d("Parser", "consumeMinutePeriod: 成功! deltaFields=$deltaFields, index=$index")
+                return true
+            } else {
+                // consumeDigit成功后但没有匹配到"分"，回退
+                index = i
+                LogcatManager.d("Parser", "consumeMinutePeriod: 未匹配到分/分钟，回退")
+            }
+        }
+
+        // 处理"等会/一会/一会儿"等
         if (remaining.startsWith("等会") || remaining.startsWith("一会") || remaining.startsWith("一会儿")) {
             index += if (remaining.startsWith("一会儿")) 3 else 2
             deltaFields["minutes"] = 10
-            LogcatManager.d("Parser", "consumeMinutePeriod: 匹配等会/一会, index=$index")
+            LogcatManager.d("Parser", "consumeMinutePeriod: 匹配等会/一会, deltaFields=$deltaFields")
             return true
         }
 
-        val count = consumeDigit()
-        LogcatManager.d("Parser", "consumeMinutePeriod: consumeDigit count=$count, index=$index")
-        if (count == null) {
-            LogcatManager.d("Parser", "consumeMinutePeriod: consumeDigit返回null, 返回false")
-            return false
-        }
-        skipWhitespace()
-
-        // 处理"X分钟后"或"X分后"格式
-        val consumed分 = consume("分")
-        val consumed分钟 = consume("分钟")
-        LogcatManager.d("Parser", "consumeMinutePeriod: consume分=$consumed分, consume分钟=$consumed分钟, index=$index")
-
-        if (consumed分 || consumed分钟) {
-            // 处理"钟"字（半小时/半个钟头）
-            consume("钟")
-            // "后"和"以后"是中文，不需要严格边界检查
-            val consumed后 = consume("后")
-            val consumed以后 = consume("以后")
-            LogcatManager.d("Parser", "consumeMinutePeriod: consume后=$consumed后, consume以后=$consumed以后, index=$index")
-
-            if (consumed后 || consumed以后) {
-                deltaFields["minutes"] = count
-                LogcatManager.d("Parser", "consumeMinutePeriod: 成功! deltaFields=$deltaFields")
-                return true
-            }
-            // 没有"后"也接受（如"20分钟"单独使用）
-            deltaFields["minutes"] = count
-            LogcatManager.d("Parser", "consumeMinutePeriod: 无后缀，成功! deltaFields=$deltaFields")
-            return true
-        }
-        LogcatManager.d("Parser", "consumeMinutePeriod: 不匹配分/分钟, 返回false")
         return false
     }
 
