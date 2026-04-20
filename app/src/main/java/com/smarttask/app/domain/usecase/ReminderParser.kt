@@ -1,6 +1,7 @@
 package com.smarttask.app.domain.usecase
 
 import com.smarttask.app.domain.model.TriggerType
+import com.smarttask.app.util.LogcatManager
 import java.util.*
 
 /**
@@ -46,7 +47,7 @@ class ReminderParser {
         afternoonFlag = false
         eventDescription = ""
 
-        android.util.Log.d("ReminderParser", "parse: input='$input'")
+        LogcatManager.d("Parser", "parse: input='$input'")
 
         return try {
             text = normalizeText(text)
@@ -226,7 +227,7 @@ class ReminderParser {
             hasNonZero = true
             i++
         }
-        android.util.Log.d("ReminderParser", "consumeDigit: index=$index, i=$i, numStr='$numStr'")
+        LogcatManager.d("Parser", "consumeDigit: index=$index, i=$i, numStr='$numStr'")
         if (numStr.isNotEmpty()) {
             index = i
             return numStr.toInt()
@@ -622,7 +623,7 @@ class ReminderParser {
             val hasTimeSeparator = consume("点") || consume("点钟") || consume("点整") || consume("时") ||
                 consume(":") || consume("：") || consume(".")
 
-            android.util.Log.d("ReminderParser", "consumeTime: hour=$hour, hasTimeSeparator=$hasTimeSeparator, index=$index, remaining='${text.substring(index)}'")
+            LogcatManager.d("Parser", "consumeTime: hour=$hour, hasTimeSeparator=$hasTimeSeparator, index=$index, remaining='${text.substring(index)}'")
 
             if (hasTimeSeparator) {
                 var finalHour = hour
@@ -641,12 +642,12 @@ class ReminderParser {
                 skipWhitespace()
                 if (text.length > index && text[index].isDigit()) {
                     val minute = consumeDigit()
-                    android.util.Log.d("ReminderParser", "consumeTime: after consumeDigit minute=$minute, index=$index, remaining='${text.substring(index)}'")
+                    LogcatManager.d("Parser", "consumeTime: after consumeDigit minute=$minute, index=$index, remaining='${text.substring(index)}'")
                     if (minute != null) {
                         // 确保分钟在有效范围内
                         val validMinute = if (minute in 0..59) minute else 0
                         timeFields["minute"] = validMinute
-                        android.util.Log.d("ReminderParser", "consumeTime: set minute=$validMinute (original=$minute)")
+                        LogcatManager.d("Parser", "consumeTime: set minute=$validMinute (original=$minute)")
                         consume("分") || consume("分钟")
                     }
                 } else {
@@ -688,7 +689,7 @@ class ReminderParser {
     private fun calculateResult(): Triple<TriggerType, String, Long> {
         val calendar = now.clone() as Calendar
 
-        android.util.Log.d("ReminderParser", "calculateResult: timeFields=$timeFields, deltaFields=$deltaFields")
+        LogcatManager.d("Parser", "calculateResult: timeFields=$timeFields, deltaFields=$deltaFields")
 
         if (deltaFields.containsKey("years")) {
             calendar.add(Calendar.YEAR, deltaFields["years"]!!)
@@ -744,7 +745,7 @@ class ReminderParser {
         calendar.set(Calendar.SECOND, 0)
         calendar.set(Calendar.MILLISECOND, 0)
 
-        android.util.Log.d("ReminderParser", "calculateResult: final hour=${calendar.get(Calendar.HOUR_OF_DAY)}, minute=${calendar.get(Calendar.MINUTE)}, timeInMillis=${calendar.timeInMillis}")
+        LogcatManager.d("Parser", "calculateResult: final hour=${calendar.get(Calendar.HOUR_OF_DAY)}, minute=${calendar.get(Calendar.MINUTE)}, timeInMillis=${calendar.timeInMillis}")
 
         return when {
             repeatFields["years"] != null -> {
