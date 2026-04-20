@@ -4,7 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
@@ -31,17 +31,33 @@ fun LogScreen(
     onNavigateBack: () -> Unit
 ) {
     val context = LocalContext.current
-    var logs by remember { mutableStateOf(LogcatManager.getLogs()) }
+    var logs by remember { mutableStateOf<List<LogEntry>>(emptyList()) }
     var autoScroll by remember { mutableStateOf(true) }
     val listState = rememberLazyListState()
 
-    // 实时刷新日志
+    // 初始化时加载日志
+    LaunchedEffect(Unit) {
+        logs = LogcatManager.getLogs()
+    }
+
+    // 每秒刷新一次日志
     LaunchedEffect(Unit) {
         while (true) {
-            delay(500)
-            logs = LogcatManager.getLogs()
-            if (autoScroll && logs.isNotEmpty()) {
-                listState.animateScrollToItem(logs.size - 1)
+            delay(1000)
+            try {
+                val newLogs = LogcatManager.getLogs()
+                if (newLogs != logs) {
+                    logs = newLogs
+                    if (autoScroll && logs.isNotEmpty()) {
+                        try {
+                            listState.animateScrollToItem(logs.size - 1)
+                        } catch (e: Exception) {
+                            // ignore scroll error
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                // ignore refresh error
             }
         }
     }
@@ -62,19 +78,32 @@ fun LogScreen(
                             style = MaterialTheme.typography.titleMedium
                         )
                     }
-                    IconButton(onClick = { LogcatManager.clear(); logs = emptyList() }) {
+                    IconButton(onClick = {
+                        try {
+                            LogcatManager.clear()
+                            logs = emptyList()
+                        } catch (e: Exception) {
+                            // ignore
+                        }
+                    }) {
                         Icon(Icons.Default.Delete, contentDescription = "清空")
                     }
                     IconButton(onClick = {
-                        val logText = logs.joinToString("\n") {
-                            "${it.formattedTime} ${it.level}/${it.tag}: ${it.message}"
+                        try {
+                            val logText = logs.joinToString("\n") {
+                                "${it.formattedTime} ${it.level}/${it.tag}: ${it.message}"
+                            }
+                            if (logText.isNotEmpty()) {
+                                val sendIntent = android.content.Intent().apply {
+                                    action = android.content.Intent.ACTION_SEND
+                                    putExtra(android.content.Intent.EXTRA_TEXT, logText)
+                                    type = "text/plain"
+                                }
+                                context.startActivity(android.content.Intent.createChooser(sendIntent, "分享日志"))
+                            }
+                        } catch (e: Exception) {
+                            // ignore
                         }
-                        val sendIntent = android.content.Intent().apply {
-                            action = android.content.Intent.ACTION_SEND
-                            putExtra(android.content.Intent.EXTRA_TEXT, logText)
-                            type = "text/plain"
-                        }
-                        context.startActivity(android.content.Intent.createChooser(sendIntent, "分享日志"))
                     }) {
                         Icon(Icons.Default.Share, contentDescription = "分享")
                     }
@@ -100,14 +129,14 @@ fun LogScreen(
                 ) {
                     if (errorCount > 0) {
                         Text(
-                            text = "❌ $errorCount 错误",
+                            text = "错误 $errorCount",
                             color = MaterialTheme.colorScheme.error,
                             style = MaterialTheme.typography.labelMedium
                         )
                     }
                     if (warnCount > 0) {
                         Text(
-                            text = "⚠️ $warnCount 警告",
+                            text = "警告 $warnCount",
                             color = Color(0xFFFF9800),
                             style = MaterialTheme.typography.labelMedium
                         )
@@ -121,13 +150,26 @@ fun LogScreen(
                 }
             }
 
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(vertical = 4.dp)
-            ) {
-                items(logs, key = { "${it.timestamp}-${it.tag}-${it.message.hashCode()}" }) { log ->
-                    LogItem(log)
+            if (logs.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "暂无日志\n创建提醒后可在此查看日志",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            } else {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(vertical = 4.dp)
+                ) {
+                    itemsIndexed(logs) { index, log ->
+                        LogItem(log)
+                    }
                 }
             }
         }
@@ -169,7 +211,7 @@ private fun LogItem(log: LogEntry) {
             fontSize = 10.sp,
             fontFamily = FontFamily.Monospace,
             color = textColor,
-            modifier = Modifier.width(100.dp),
+            modifier = Modifier.width(80.dp),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
