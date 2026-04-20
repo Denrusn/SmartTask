@@ -40,7 +40,7 @@ class ReminderService : Service() {
                 rescheduleAllReminders()
             }
             "com.smarttask.SCHEDULE" -> {
-                val reminderId = intent.getLongExtra("reminderId", -1)
+                val reminderId = intent?.getLongExtra("reminderId", -1) ?: -1
                 LogcatManager.i("Service", "SCHEDULE: reminderId=$reminderId")
                 if (reminderId != -1L) {
                     serviceScope.launch {
@@ -61,7 +61,7 @@ class ReminderService : Service() {
                 }
             }
             "com.smarttask.CANCEL" -> {
-                val reminderId = intent.getLongExtra("reminderId", -1)
+                val reminderId = intent?.getLongExtra("reminderId", -1) ?: -1
                 LogcatManager.i("Service", "CANCEL: reminderId=$reminderId")
                 if (reminderId != -1L) {
                     cancelReminder(reminderId)
