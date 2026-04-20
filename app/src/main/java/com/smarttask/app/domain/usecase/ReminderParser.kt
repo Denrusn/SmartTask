@@ -527,11 +527,17 @@ class ReminderParser {
 
         val count = consumeDigit() ?: return false
         skipWhitespace()
-        if (consume("分钟") || consume("分")) {
-            if (consumeWord("后") || consumeWord("以后")) {
+
+        // 处理"X分钟后"或"X分后"格式
+        if (consume("分") || consume("分钟")) {
+            // 处理"钟"字（半小时/半个钟头）
+            consume("钟")
+            // "后"和"以后"是中文，不需要严格边界检查
+            if (consume("后") || consume("以后")) {
                 deltaFields["minutes"] = count
                 return true
             }
+            // 没有"后"也接受（如"20分钟"单独使用）
             deltaFields["minutes"] = count
             return true
         }
