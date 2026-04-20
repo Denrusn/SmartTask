@@ -123,13 +123,7 @@ class CreateReminderViewModel(application: Application) : AndroidViewModel(appli
                     action = "com.smarttask.SCHEDULE"
                     putExtra("reminderId", id)
                 }
-                val result = getApplication<Application>().startService(intent)
-
-                // 检查服务返回结果
-                if (result == android.app.Service.START_NOT_STICKY) {
-                    _uiState.value = _uiState.value.copy(error = "无法创建提醒，可能是时间已过或系统权限不足")
-                    return@launch
-                }
+                getApplication<Application>().startService(intent)
 
                 _uiState.value = _uiState.value.copy(parsedResult = null, inputText = "", navigateBack = true)
             } catch (e: Exception) {
