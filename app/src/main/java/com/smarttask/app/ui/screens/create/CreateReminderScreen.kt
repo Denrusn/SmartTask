@@ -7,8 +7,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -61,7 +63,20 @@ fun CreateReminderScreen(
                 placeholder = { Text("例如：明天下午3点45分提醒我吃午饭") },
                 minLines = 3,
                 maxLines = 5,
-                enabled = !uiState.isLoading && uiState.parsedResult == null
+                enabled = !uiState.isLoading,
+                trailingIcon = {
+                    if (uiState.inputText.isNotEmpty()) {
+                        IconButton(
+                            onClick = { viewModel.resetInput() }
+                        ) {
+                            Icon(
+                                Icons.Default.Clear,
+                                contentDescription = "清空",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
             )
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -154,10 +169,10 @@ fun CreateReminderScreen(
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     OutlinedButton(
-                        onClick = { viewModel.resetInput() },
+                        onClick = { viewModel.clearParsedResult() },
                         modifier = Modifier.weight(1f)
                     ) {
-                        Text("重新输入")
+                        Text("修改")
                     }
 
                     Button(

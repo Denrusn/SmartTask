@@ -167,6 +167,10 @@ class CreateReminderViewModel(application: Application) : AndroidViewModel(appli
         _uiState.value = CreateReminderUiState()
     }
 
+    fun clearParsedResult() {
+        _uiState.value = _uiState.value.copy(parsedResult = null)
+    }
+
     private fun setNavigateBack(value: Boolean) {
         _uiState.value = _uiState.value.copy(navigateBack = value)
     }
