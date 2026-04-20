@@ -353,12 +353,16 @@ class ReminderParser {
         }
 
         // X年后
+        val i = index
         val num = consumeDigit()
-        if (num != null && remaining.startsWith("年后") || remaining.startsWith("年以后")) {
-            index += 2
-            deltaFields["years"] = num
-            return true
+        if (num != null) {
+            skipWhitespace()
+            if (consume("年后") || consume("年以后")) {
+                deltaFields["years"] = num
+                return true
+            }
         }
+        index = i
 
         return false
     }
