@@ -94,13 +94,24 @@ class CreateReminderViewModel(application: Application) : AndroidViewModel(appli
 
         viewModelScope.launch {
             try {
+                // 检查时间是否已过
+                val triggerTimeMs = parseTriggerTime(parsed)
+                val now = System.currentTimeMillis()
+
+                if (parsed.triggerType == TriggerType.ONCE && triggerTimeMs <= now) {
+                    _uiState.value = _uiState.value.copy(error = "提醒时间已过，请重新设置一个将来的时间")
+                    return@launch
+                }
+
                 val reminder = Reminder(
                     title = parsed.event,
                     content = "提醒：${parsed.event}",
                     triggerType = parsed.triggerType,
                     triggerValue = when (parsed.triggerType) {
-                        TriggerType.ONCE -> parsed.triggerTime
-                        else -> parsed.triggerTime.split(" ").lastOrNull() ?: ""
+                        TriggerType.ONCE -> triggerTimeMs.toString()
+                        TriggerType.DAILY, TriggerType.WEEKLY, TriggerType.MONTHLY, TriggerType.YEARLY ->
+                            parsed.triggerTime.split(" ").lastOrNull() ?: ""
+                        else -> parsed.triggerTime
                     },
                     actionType = ActionType.NOTIFICATION
                 )
@@ -112,12 +123,45 @@ class CreateReminderViewModel(application: Application) : AndroidViewModel(appli
                     action = "com.smarttask.SCHEDULE"
                     putExtra("reminderId", id)
                 }
-                getApplication<Application>().startService(intent)
+                val result = getApplication<Application>().startService(intent)
+
+                // 检查服务返回结果
+                if (result == android.app.Service.START_NOT_STICKY) {
+                    _uiState.value = _uiState.value.copy(error = "无法创建提醒，可能是时间已过或系统权限不足")
+                    return@launch
+                }
 
                 _uiState.value = _uiState.value.copy(parsedResult = null, inputText = "", navigateBack = true)
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(error = "保存失败: ${e.message}")
             }
+        }
+    }
+
+    private fun parseTriggerTime(parsed: ParsedReminderUiState): Long {
+        // 从 formatted time string "4月20日(周一) 08:03" 解析出时间戳
+        // 或者从 result.event 中获取原始时间戳
+        // 这里使用简单的方式：从 triggerTime 重新解析
+        return try {
+            val timeStr = parsed.triggerTime
+            // 格式: "4月20日(周一) 08:03"
+            val regex = Regex("(\\d+)月(\\d+)日.*?(\\d+):(\\d+)")
+            val match = regex.find(timeStr)
+            if (match != null) {
+                val (month, day, hour, minute) = match.destructured
+                val calendar = java.util.Calendar.getInstance()
+                calendar.set(java.util.Calendar.MONTH, month.toInt() - 1)
+                calendar.set(java.util.Calendar.DAY_OF_MONTH, day.toInt())
+                calendar.set(java.util.Calendar.HOUR_OF_DAY, hour.toInt())
+                calendar.set(java.util.Calendar.MINUTE, minute.toInt())
+                calendar.set(java.util.Calendar.SECOND, 0)
+                calendar.set(java.util.Calendar.MILLISECOND, 0)
+                calendar.timeInMillis
+            } else {
+                System.currentTimeMillis()
+            }
+        } catch (e: Exception) {
+            System.currentTimeMillis()
         }
     }
 

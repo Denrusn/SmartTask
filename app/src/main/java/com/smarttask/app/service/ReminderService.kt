@@ -36,7 +36,14 @@ class ReminderService : Service() {
                 if (reminderId != -1L) {
                     serviceScope.launch {
                         val reminder = database.reminderDao().getReminderById(reminderId)
-                        reminder?.let { scheduleReminder(it) }
+                        reminder?.let {
+                            val success = scheduleReminder(it)
+                            if (!success) {
+                                // 时间已过，标记提醒为禁用
+                                val updated = it.copy(isEnabled = false)
+                                database.reminderDao().updateReminder(updated)
+                            }
+                        }
                     }
                 }
             }
@@ -47,7 +54,7 @@ class ReminderService : Service() {
                 }
             }
         }
-        return START_STICKY
+        return START_NOT_STICKY
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -61,9 +68,14 @@ class ReminderService : Service() {
         }
     }
 
-    fun scheduleReminder(reminder: Reminder) {
+    fun scheduleReminder(reminder: Reminder): Boolean {
         val triggerTime = calculateNextTriggerTime(reminder)
-        if (triggerTime <= System.currentTimeMillis()) return
+        val now = System.currentTimeMillis()
+
+        if (triggerTime <= now) {
+            android.util.Log.w("ReminderService", "时间已过: triggerTime=$triggerTime, now=$now")
+            return false
+        }
 
         val intent = Intent(this, AlarmReceiver::class.java).apply {
             action = "com.smarttask.ALARM_TRIGGER"
@@ -80,20 +92,23 @@ class ReminderService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            if (alarmManager.canScheduleExactAlarms()) {
-                alarmManager.setExactAndAllowWhileIdle(
-                    AlarmManager.RTC_WAKEUP,
-                    triggerTime,
-                    pendingIntent
-                )
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                if (!alarmManager.canScheduleExactAlarms()) {
+                    android.util.Log.w("ReminderService", "没有精确闹钟权限")
+                    return false
+                }
             }
-        } else {
             alarmManager.setExactAndAllowWhileIdle(
                 AlarmManager.RTC_WAKEUP,
                 triggerTime,
                 pendingIntent
             )
+            android.util.Log.i("ReminderService", "提醒已设置: triggerTime=$triggerTime")
+            return true
+        } catch (e: Exception) {
+            android.util.Log.e("ReminderService", "设置提醒失败", e)
+            return false
         }
     }
 
