@@ -668,12 +668,13 @@ class ReminderParser {
         }
 
         // 解析具体时间 8:03 / 8点03 / 8点
+        // 重要：只有当有明确的时间分隔符(点/时/:)时才认为这是时间
         if (text.length > index && text[index].isDigit()) {
             val hourStart = index
             val hour = consumeDigit() ?: return consumed
 
             skipWhitespace()
-            // 检查是否是时间格式
+            // 检查是否是时间格式 - 必须有分隔符
             val hasTimeSeparator = consume("点") || consume("点钟") || consume("点整") || consume("时") ||
                 consume(":") || consume("：") || consume(".")
 
@@ -709,12 +710,9 @@ class ReminderParser {
                 }
 
                 return true
-            } else if (hour <= 23) {
-                // 只有小时没有分钟
-                timeFields["hour"] = hour
-                timeFields["minute"] = timeFields["minute"] ?: 0
-                return true
             }
+            // 没有时间分隔符，不是时间格式，回退
+            index = hourStart
         }
 
         // 半
